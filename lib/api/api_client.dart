@@ -2,6 +2,8 @@ import 'package:dio/dio.dart';
 
 class ApiClient {
   static final Dio dio = Dio();
+  // Keep a reference to the auth interceptor so we can add/remove it without clearing others
+  static InterceptorsWrapper? _authInterceptor;
 
   /// Initialize the API client with base URL from environment
   static void initialize(String baseUrl) {
@@ -38,16 +40,20 @@ class ApiClient {
 
   /// Call this to set or update the Bearer token for all requests.
   static void setBearerToken(String? token) {
-    dio.interceptors.clear();
+    // Remove previous auth interceptor if present
+    if (_authInterceptor != null) {
+      dio.interceptors.remove(_authInterceptor);
+      _authInterceptor = null;
+    }
+    // Add new auth interceptor if token provided
     if (token != null && token.isNotEmpty) {
-      dio.interceptors.add(
-        InterceptorsWrapper(
-          onRequest: (options, handler) {
-            options.headers['Authorization'] = 'Bearer $token';
-            return handler.next(options);
-          },
-        ),
+      _authInterceptor = InterceptorsWrapper(
+        onRequest: (options, handler) {
+          options.headers['Authorization'] = 'Bearer $token';
+          return handler.next(options);
+        },
       );
+      dio.interceptors.add(_authInterceptor!);
     }
   }
 }

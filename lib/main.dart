@@ -1,9 +1,7 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_appauth/flutter_appauth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -11,6 +9,7 @@ import 'config/env.dart';
 import 'pages/home_page.dart';
 import 'pages/quiz_list_page.dart';
 import 'pages/quiz_details_page.dart';
+import 'pages/sign_in_page.dart';
 import 'api/api_client.dart';
 
 final FlutterAppAuth appAuth = FlutterAppAuth();
@@ -58,7 +57,19 @@ void main() async {
   // Set up the Bearer token for API calls if available
   final secureStorage = FlutterSecureStorage();
   final accessToken = await secureStorage.read(key: 'access_token');
+  final idToken = await secureStorage.read(key: 'id_token');
+  final refreshToken = await secureStorage.read(key: 'refresh_token');
   ApiClient.setBearerToken(accessToken);
+
+  // Create UserProfile instance and initialize with stored tokens
+  final userProfile = UserProfile();
+  if (accessToken != null && accessToken.isNotEmpty) {
+    userProfile.updateTokens(
+      access: accessToken,
+      id: idToken,
+      refresh: refreshToken,
+    );
+  }
 
   final GoRouter _router = GoRouter(
     initialLocation: '/home',
@@ -98,8 +109,8 @@ void main() async {
   );
 
   runApp(
-    ChangeNotifierProvider(
-      create: (_) => UserProfile(),
+    ChangeNotifierProvider.value(
+      value: userProfile,
       child: MyApp(router: _router),
     ),
   );
@@ -242,212 +253,6 @@ class _NavBarItem extends StatelessWidget {
             const SizedBox(height: 2),
             Text(label, style: TextStyle(color: color, fontSize: 12)),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class SignInPage extends StatefulWidget {
-  const SignInPage({Key? key}) : super(key: key);
-
-  @override
-  _SignInPageState createState() => _SignInPageState();
-}
-
-class _SignInPageState extends State<SignInPage> {
-  String? _accessToken;
-  String? _idToken;
-  String? _refreshToken;
-  String? _errorMessage;
-
-  Future<void> _login() async {
-    try {
-      final AuthorizationTokenResponse? result = await appAuth.authorizeAndExchangeCode(
-        AuthorizationTokenRequest(
-          Environment.keycloakClientId,
-          Environment.keycloakRedirectUri,
-          discoveryUrl: Environment.keycloakDiscoveryUrl,
-          scopes: ['openid', 'profile', 'email'],
-        ),
-      );
-      if (result != null) {
-        await secureStorage.write(key: 'access_token', value: result.accessToken);
-        await secureStorage.write(key: 'id_token', value: result.idToken);
-        await secureStorage.write(key: 'refresh_token', value: result.refreshToken);
-        setState(() {
-          _accessToken = result.accessToken;
-          _idToken = result.idToken;
-          _refreshToken = result.refreshToken;
-          _errorMessage = null;
-        });
-        // Update Provider
-        final userProfile = Provider.of<UserProfile>(context, listen: false);
-        userProfile.updateTokens(
-          access: result.accessToken,
-          id: result.idToken,
-          refresh: result.refreshToken,
-        );
-        // Redirect to home after login
-        if (mounted) {
-          GoRouter.of(context).go('/home');
-        }
-      }
-    } catch (e, stack) {
-      print('Login failed: $e');
-      print(stack);
-      setState(() {
-        _errorMessage = 'Login failed: $e';
-      });
-    }
-  }
-
-  Future<void> _refreshTokens() async {
-    try {
-      final storedRefreshToken = await secureStorage.read(key: 'refresh_token');
-      if (storedRefreshToken == null) {
-        setState(() {
-          _errorMessage = 'No refresh token available.';
-        });
-        return;
-      }
-      final TokenResponse? response = await appAuth.token(TokenRequest(
-        Environment.keycloakClientId,
-        Environment.keycloakRedirectUri,
-        discoveryUrl: Environment.keycloakDiscoveryUrl,
-        refreshToken: storedRefreshToken,
-        scopes: ['openid', 'profile', 'email'],
-      ));
-      if (response != null) {
-        await secureStorage.write(key: 'access_token', value: response.accessToken);
-        await secureStorage.write(key: 'id_token', value: response.idToken);
-        await secureStorage.write(key: 'refresh_token', value: response.refreshToken ?? storedRefreshToken);
-        setState(() {
-          _accessToken = response.accessToken;
-          _idToken = response.idToken;
-          _refreshToken = response.refreshToken ?? storedRefreshToken;
-          _errorMessage = null;
-        });
-        // Update Provider
-        final userProfile = Provider.of<UserProfile>(context, listen: false);
-        userProfile.updateTokens(
-          access: response.accessToken,
-          id: response.idToken,
-          refresh: response.refreshToken ?? storedRefreshToken,
-        );
-      }
-    } catch (e, stack) {
-      print('Token refresh failed: $e');
-      print(stack);
-      setState(() {
-        _errorMessage = 'Token refresh failed: $e';
-      });
-    }
-  }
-
-  // Helper to decode JWT and check expiry
-  bool _isTokenExpired(String? token) {
-    if (token == null) return true;
-    try {
-      final parts = token.split('.');
-      if (parts.length != 3) return true;
-      final payload = json.decode(utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))));
-      final exp = payload['exp'];
-      if (exp == null) return true;
-      final expiry = DateTime.fromMillisecondsSinceEpoch(exp * 1000);
-      // Consider token expired if less than 1 minute left
-      return DateTime.now().isAfter(expiry.subtract(const Duration(minutes: 1)));
-    } catch (_) {
-      return true;
-    }
-  }
-
-  // Use this to get a valid access token (auto-refresh if needed)
-  Future<String?> getValidAccessToken() async {
-    if (_isTokenExpired(_accessToken)) {
-      await _refreshTokens();
-    }
-    return _accessToken;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return CupertinoPageScaffold(
-      navigationBar: const CupertinoNavigationBar(
-        middle: Text('Sign In'),
-      ),
-      child: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: <Widget>[
-                if (_accessToken == null) ...[
-                  CupertinoButton.filled(
-                    onPressed: _login,
-                    child: const Text('Login with Keycloak'),
-                  ),
-                  if (_errorMessage != null) ...[
-                    const SizedBox(height: 16),
-                    Text(_errorMessage!, style: const TextStyle(color: CupertinoColors.systemRed)),
-                  ],
-                ] else ...[
-                  const Text('Logged in!'),
-                  const SizedBox(height: 16),
-                  Consumer<UserProfile>(
-                    builder: (context, profile, _) => Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Access Token:'),
-                        SelectableText(profile.accessToken ?? '', style: TextStyle(fontSize: 12)),
-                        CupertinoButton(
-                          padding: EdgeInsets.zero,
-                          onPressed: profile.accessToken == null ? null : () async {
-                            await Clipboard.setData(ClipboardData(text: profile.accessToken ?? ''));
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Access token copied!')),
-                            );
-                          },
-                          child: const Icon(CupertinoIcons.doc_on_doc),
-                        ),
-                        const SizedBox(height: 16),
-                        const Text('ID Token:'),
-                        SelectableText(profile.idToken ?? '', style: TextStyle(fontSize: 12)),
-                        CupertinoButton(
-                          padding: EdgeInsets.zero,
-                          onPressed: profile.idToken == null ? null : () async {
-                            await Clipboard.setData(ClipboardData(text: profile.idToken ?? ''));
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('ID token copied!')),
-                            );
-                          },
-                          child: const Icon(CupertinoIcons.doc_on_doc),
-                        ),
-                        const SizedBox(height: 16),
-                        const Text('Refresh Token:'),
-                        SelectableText(profile.refreshToken ?? '', style: TextStyle(fontSize: 12)),
-                        CupertinoButton(
-                          padding: EdgeInsets.zero,
-                          onPressed: profile.refreshToken == null ? null : () async {
-                            await Clipboard.setData(ClipboardData(text: profile.refreshToken ?? ''));
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Refresh token copied!')),
-                            );
-                          },
-                          child: const Icon(CupertinoIcons.doc_on_doc),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  CupertinoButton(
-                    onPressed: _refreshTokens,
-                    child: const Text('Refresh Tokens'),
-                  ),
-                ],
-              ],
-            ),
-          ),
         ),
       ),
     );

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:openapi/openapi.dart';  // This now includes our enhanced APIs
 import 'package:flutter_e_mentor/main.dart';
 import 'package:flutter_e_mentor/api/api_client.dart';
+import 'package:go_router/go_router.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -72,6 +73,50 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _disconnect() async {
+    // Remove stored tokens
+    await secureStorage.delete(key: 'access_token');
+    await secureStorage.delete(key: 'id_token');
+    await secureStorage.delete(key: 'refresh_token');
+    // Clear user profile and API bearer token
+    Provider.of<UserProfile>(context, listen: false).clear();
+    ApiClient.setBearerToken(null);
+    // Navigate to sign-in page
+    context.go('/sign-in');
+  }
+
+  // Add confirmation popup method
+  void _showDisconnectConfirmation() {
+    showCupertinoDialog(
+      context: context,
+      builder: (BuildContext dialogContext) => CupertinoAlertDialog(
+        title: const Text('Confirmare deconectare'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text('Sigur vrei să te deconectezi?'),
+            const SizedBox(height: 16),
+            CupertinoButton.filled(
+              color: CupertinoColors.systemRed,
+              child: const Text('Deconectare', style: TextStyle(color: CupertinoColors.white)),
+              onPressed: () async {
+                Navigator.of(dialogContext).pop();
+                await _disconnect();
+              },
+            ),
+          ],
+        ),
+        actions: [
+          CupertinoDialogAction(
+            child: const Text('Anulare'),
+            onPressed: () => Navigator.of(dialogContext).pop(),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final userProfile = Provider.of<UserProfile>(context);
@@ -80,106 +125,129 @@ class _HomePageState extends State<HomePage> {
     return CupertinoPageScaffold(
       backgroundColor: CupertinoColors.white,
       child: SafeArea(
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _BigCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Bună,', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w600, color: theme.primaryColor)),
-                      const SizedBox(height: 8),
-                      Text(userName, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: CupertinoColors.black)),
-                    ],
-                  ),
-                ),
-                
-                if (_isLoading)
-                  const _BigCard(
-                    child: Center(
-                      child: CupertinoActivityIndicator(),
-                    ),
-                  )
-                else if (_error != null)
-                  _BigCard(
-                    child: Column(
-                      children: [
-                        const Text('Nu s-au putut încărca datele', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 8),
-                        CupertinoButton(
-                          child: const Text('Reîncearcă'),
-                          onPressed: _fetchDashboardStats,
-                        ),
-                      ],
-                    ),
-                  )
-                else ...[
-                  // Quiz stats card
-                  _BigCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'Testele tale',
-                              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: theme.primaryColor),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: theme.primaryColor.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Text(
-                                '${_dashboardStats?.quizzes?.completedQuizzes ?? 0} completate',
-                                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: theme.primaryColor),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        _StatRow(
-                          label: 'Întrebări răspunse',
-                          value: _dashboardStats?.questions?.totalQuestions?.toString() ?? '0',
-                        ),
-                        const SizedBox(height: 12),
-                        _StatRow(
-                          label: 'Răspunsuri corecte',
-                          value: _dashboardStats?.questions?.correctQuestions?.toString() ?? '0',
-                        ),
-                        const SizedBox(height: 12),
-                        _StatRow(
-                          label: 'Timp petrecut (ultima lună)',
-                          value: _formatTime(_dashboardStats?.lastMonthQuizTime ?? 0),
-                        ),
-                      ],
-                    ),
-                  ),
-                  
-                  // Recent results card if available
-                  if (_dashboardStats?.lastMonthQuizzesResults?.isNotEmpty ?? false)
+        // Wrap content in a Stack to position floating button
+        child: Stack(
+          children: [
+            SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
                     _BigCard(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Rezultate recente',
-                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: theme.primaryColor),
-                          ),
-                          const SizedBox(height: 16),
-                          ..._buildRecentResults(),
+                          Text('Bună,', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w600, color: CupertinoTheme.of(context).primaryColor)),
+                          const SizedBox(height: 8),
+                          Text(userName, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: CupertinoColors.black)),
                         ],
                       ),
                     ),
-                ]
-              ],
+                    
+                    if (_isLoading)
+                      const _BigCard(
+                        child: Center(
+                          child: CupertinoActivityIndicator(),
+                        ),
+                      )
+                    else if (_error != null)
+                      _BigCard(
+                        child: Column(
+                          children: [
+                            const Text('Nu s-au putut încărca datele', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 8),
+                            CupertinoButton(
+                              child: const Text('Reîncearcă'),
+                              onPressed: _fetchDashboardStats,
+                            ),
+                          ],
+                        ),
+                      )
+                    else ...[
+                      // Quiz stats card
+                      _BigCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Testele tale',
+                                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: theme.primaryColor),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: theme.primaryColor.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Text(
+                                    '${_dashboardStats?.quizzes?.completedQuizzes ?? 0} completate',
+                                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: theme.primaryColor),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            _StatRow(
+                              label: 'Întrebări răspunse',
+                              value: _dashboardStats?.questions?.totalQuestions?.toString() ?? '0',
+                            ),
+                            const SizedBox(height: 12),
+                            _StatRow(
+                              label: 'Răspunsuri corecte',
+                              value: _dashboardStats?.questions?.correctQuestions?.toString() ?? '0',
+                            ),
+                            const SizedBox(height: 12),
+                            _StatRow(
+                              label: 'Timp petrecut (ultima lună)',
+                              value: _formatTime(_dashboardStats?.lastMonthQuizTime ?? 0),
+                            ),
+                          ],
+                        ),
+                      ),
+                      
+                      // Recent results card if available
+                      if (_dashboardStats?.lastMonthQuizzesResults?.isNotEmpty ?? false)
+                        _BigCard(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Rezultate recente',
+                                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: theme.primaryColor),
+                              ),
+                              const SizedBox(height: 16),
+                              ..._buildRecentResults(),
+                            ],
+                          ),
+                        ),
+                    ]
+                  ],
+                ),
+              ),
             ),
-          ),
+            // Floating round disconnect button
+            Positioned(
+              top: 16,
+              right: 16,
+              child: GestureDetector(
+                onTap: _showDisconnectConfirmation,
+                child: Container(
+                  width: 48,
+                  height: 48,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: CupertinoColors.systemRed,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(CupertinoIcons.power, color: CupertinoColors.white),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

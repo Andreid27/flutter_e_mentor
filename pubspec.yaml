@@ -68,6 +68,7 @@ flutter:
   # Include the .env file as an asset
   assets:
     - .env
+    - lib/resouces/e_mentor.ico
 
   # To add assets to your application, add an assets section, like this:
   # assets:
