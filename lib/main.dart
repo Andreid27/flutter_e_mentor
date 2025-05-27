@@ -1,73 +1,261 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter_appauth/flutter_appauth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/services.dart';
-
-// Keycloak configuration
-const String KEYCLOAK_ISSUER = 'https://dev.api.e-mentor.ro/auth/realms/e-mentor';
-const String KEYCLOAK_CLIENT_ID = 'e-mentor';
-const String KEYCLOAK_REDIRECT_URI = 'com.example.flutterementor://login-callback'; // Update this in Keycloak client settings
-const String KEYCLOAK_DISCOVERY_URL =
-    'https://dev.api.e-mentor.ro/auth/realms/e-mentor/.well-known/openid-configuration';
+import 'package:provider/provider.dart';
+import 'package:go_router/go_router.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'config/env.dart';
+import 'pages/home_page.dart';
+import 'pages/quiz_list_page.dart';
+import 'pages/quiz_details_page.dart';
+import 'api/api_client.dart';
 
 final FlutterAppAuth appAuth = FlutterAppAuth();
 final FlutterSecureStorage secureStorage = const FlutterSecureStorage();
 
-void main() {
-  runApp(const MyApp());
+// User profile model for Provider
+class UserProfile extends ChangeNotifier {
+  String? name;
+  String? email;
+  String? accessToken;
+  String? idToken;
+  String? refreshToken;
+
+  void updateTokens({String? access, String? id, String? refresh}) {
+    accessToken = access;
+    idToken = id;
+    refreshToken = refresh;
+    notifyListeners();
+  }
+
+  void updateProfile({String? newName, String? newEmail}) {
+    name = newName;
+    email = newEmail;
+    notifyListeners();
+  }
+
+  void clear() {
+    name = null;
+    email = null;
+    accessToken = null;
+    idToken = null;
+    refreshToken = null;
+    notifyListeners();
+  }
+}
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Load environment variables from .env file
+  await dotenv.load(fileName: ".env");
+
+  // Initialize API client with base URL
+  ApiClient.initialize(Environment.apiBaseUrl);
+  
+  // Set up the Bearer token for API calls if available
+  final secureStorage = FlutterSecureStorage();
+  final accessToken = await secureStorage.read(key: 'access_token');
+  ApiClient.setBearerToken(accessToken);
+
+  final GoRouter _router = GoRouter(
+    initialLocation: '/home',
+    redirect: (context, state) {
+      final userProfile = Provider.of<UserProfile>(context, listen: false);
+      final loggedIn = userProfile.accessToken != null && userProfile.accessToken!.isNotEmpty;
+      final loggingIn = state.fullPath == '/sign-in';
+      if (!loggedIn && !loggingIn) return '/sign-in';
+      if (loggedIn && loggingIn) return '/home';
+      return null;
+    },
+    routes: [
+      GoRoute(
+        path: '/sign-in',
+        builder: (context, state) => const SignInPage(),
+      ),
+      ShellRoute(
+        builder: (context, state, child) => MainScaffold(child: child),
+        routes: [
+          GoRoute(
+            path: '/home',
+            builder: (context, state) => const HomePage(),
+          ),
+          GoRoute(
+            path: '/quizzes',
+            builder: (context, state) => const QuizListPage(),
+            routes: [
+              GoRoute(
+                path: ':id',
+                builder: (context, state) => QuizDetailsPage(quizId: state.pathParameters['id']!),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ],
+  );
+
+  runApp(
+    ChangeNotifierProvider(
+      create: (_) => UserProfile(),
+      child: MyApp(router: _router),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  // This widget is the root of your application.
+  final GoRouter router;
+  const MyApp({super.key, required this.router});
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return CupertinoApp.router(
       title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-      ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      theme: cupertinoThemeFromWebPalette(),
+      routerConfig: router,
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
-
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
+CupertinoThemeData cupertinoThemeFromWebPalette() {
+  // Colors from index.js
+  const primary = Color.fromRGBO(40, 199, 111, 1); // #28C76F
+  const primaryDark = Color(0xFF22B86B);
+  const background = Color(0xFFFFFFFF); // Always white
+  const barBackground = Color(0xFFFFFFFF);
+  const textColor = Color.fromRGBO(47, 43, 61, 0.78);
+  return const CupertinoThemeData(
+    brightness: Brightness.light,
+    primaryColor: primary,
+    primaryContrastingColor: primaryDark,
+    barBackgroundColor: barBackground,
+    scaffoldBackgroundColor: background,
+    textTheme: CupertinoTextThemeData(
+      textStyle: TextStyle(color: textColor, fontFamily: 'SF Pro Text'),
+      navTitleTextStyle: TextStyle(color: textColor, fontSize: 20, fontWeight: FontWeight.w600),
+      navLargeTitleTextStyle: TextStyle(color: textColor, fontSize: 34, fontWeight: FontWeight.bold),
+      actionTextStyle: TextStyle(color: primary, fontSize: 17),
+    ),
+  );
 }
 
-class _MyHomePageState extends State<MyHomePage> {
+class MainScaffold extends StatefulWidget {
+  final Widget child;
+  const MainScaffold({super.key, required this.child});
+  @override
+  State<MainScaffold> createState() => _MainScaffoldState();
+}
+
+class _MainScaffoldState extends State<MainScaffold> {
+  int _selectedIndex = 0;
+  static const List<String> _routes = ['/home', '/quizzes'];
+  void _onItemTapped(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
+    context.go(_routes[index]);
+  }
+  @override
+  Widget build(BuildContext context) {
+    final theme = CupertinoTheme.of(context);
+    return Container(
+      color: CupertinoColors.white,
+      child: Stack(
+        children: [
+          // Main content
+          Positioned.fill(
+            child: SafeArea(
+              child: widget.child,
+            ),
+          ),
+          // Floating nav bar
+          Positioned(
+            left: 24,
+            right: 24,
+            bottom: 24,
+            child: Container(
+              decoration: BoxDecoration(
+                color: theme.barBackgroundColor,
+                borderRadius: BorderRadius.circular(32),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 24,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _NavBarItem(
+                    icon: CupertinoIcons.home,
+                    label: 'Home',
+                    selected: _selectedIndex == 0,
+                    onTap: () => _onItemTapped(0),
+                    activeColor: theme.primaryColor,
+                  ),
+                  _NavBarItem(
+                    icon: CupertinoIcons.list_bullet,
+                    label: 'Quizzes',
+                    selected: _selectedIndex == 1,
+                    onTap: () => _onItemTapped(1),
+                    activeColor: theme.primaryColor,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NavBarItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final Color activeColor;
+  const _NavBarItem({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    required this.activeColor,
+  });
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? activeColor : CupertinoColors.inactiveGray;
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: 28),
+            const SizedBox(height: 2),
+            Text(label, style: TextStyle(color: color, fontSize: 12)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class SignInPage extends StatefulWidget {
+  const SignInPage({Key? key}) : super(key: key);
+
+  @override
+  _SignInPageState createState() => _SignInPageState();
+}
+
+class _SignInPageState extends State<SignInPage> {
   String? _accessToken;
   String? _idToken;
   String? _refreshToken;
@@ -77,9 +265,9 @@ class _MyHomePageState extends State<MyHomePage> {
     try {
       final AuthorizationTokenResponse? result = await appAuth.authorizeAndExchangeCode(
         AuthorizationTokenRequest(
-          KEYCLOAK_CLIENT_ID,
-          KEYCLOAK_REDIRECT_URI,
-          discoveryUrl: KEYCLOAK_DISCOVERY_URL,
+          Environment.keycloakClientId,
+          Environment.keycloakRedirectUri,
+          discoveryUrl: Environment.keycloakDiscoveryUrl,
           scopes: ['openid', 'profile', 'email'],
         ),
       );
@@ -93,12 +281,23 @@ class _MyHomePageState extends State<MyHomePage> {
           _refreshToken = result.refreshToken;
           _errorMessage = null;
         });
+        // Update Provider
+        final userProfile = Provider.of<UserProfile>(context, listen: false);
+        userProfile.updateTokens(
+          access: result.accessToken,
+          id: result.idToken,
+          refresh: result.refreshToken,
+        );
+        // Redirect to home after login
+        if (mounted) {
+          GoRouter.of(context).go('/home');
+        }
       }
     } catch (e, stack) {
-      print('Login failed: \$e');
+      print('Login failed: $e');
       print(stack);
       setState(() {
-        _errorMessage = 'Login failed: \$e';
+        _errorMessage = 'Login failed: $e';
       });
     }
   }
@@ -113,9 +312,9 @@ class _MyHomePageState extends State<MyHomePage> {
         return;
       }
       final TokenResponse? response = await appAuth.token(TokenRequest(
-        KEYCLOAK_CLIENT_ID,
-        KEYCLOAK_REDIRECT_URI,
-        discoveryUrl: KEYCLOAK_DISCOVERY_URL,
+        Environment.keycloakClientId,
+        Environment.keycloakRedirectUri,
+        discoveryUrl: Environment.keycloakDiscoveryUrl,
         refreshToken: storedRefreshToken,
         scopes: ['openid', 'profile', 'email'],
       ));
@@ -129,12 +328,19 @@ class _MyHomePageState extends State<MyHomePage> {
           _refreshToken = response.refreshToken ?? storedRefreshToken;
           _errorMessage = null;
         });
+        // Update Provider
+        final userProfile = Provider.of<UserProfile>(context, listen: false);
+        userProfile.updateTokens(
+          access: response.accessToken,
+          id: response.idToken,
+          refresh: response.refreshToken ?? storedRefreshToken,
+        );
       }
     } catch (e, stack) {
-      print('Token refresh failed: \$e');
+      print('Token refresh failed: $e');
       print(stack);
       setState(() {
-        _errorMessage = 'Token refresh failed: \$e';
+        _errorMessage = 'Token refresh failed: $e';
       });
     }
   }
@@ -166,98 +372,82 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
-    return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
+    return CupertinoPageScaffold(
+      navigationBar: const CupertinoNavigationBar(
+        middle: Text('Sign In'),
       ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            if (_accessToken == null) ...[
-              ElevatedButton(
-                onPressed: _login,
-                child: const Text('Login with Keycloak'),
-              ),
-              if (_errorMessage != null) ...[
-                const SizedBox(height: 16),
-                Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
+      child: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                if (_accessToken == null) ...[
+                  CupertinoButton.filled(
+                    onPressed: _login,
+                    child: const Text('Login with Keycloak'),
+                  ),
+                  if (_errorMessage != null) ...[
+                    const SizedBox(height: 16),
+                    Text(_errorMessage!, style: const TextStyle(color: CupertinoColors.systemRed)),
+                  ],
+                ] else ...[
+                  const Text('Logged in!'),
+                  const SizedBox(height: 16),
+                  Consumer<UserProfile>(
+                    builder: (context, profile, _) => Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Access Token:'),
+                        SelectableText(profile.accessToken ?? '', style: TextStyle(fontSize: 12)),
+                        CupertinoButton(
+                          padding: EdgeInsets.zero,
+                          onPressed: profile.accessToken == null ? null : () async {
+                            await Clipboard.setData(ClipboardData(text: profile.accessToken ?? ''));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Access token copied!')),
+                            );
+                          },
+                          child: const Icon(CupertinoIcons.doc_on_doc),
+                        ),
+                        const SizedBox(height: 16),
+                        const Text('ID Token:'),
+                        SelectableText(profile.idToken ?? '', style: TextStyle(fontSize: 12)),
+                        CupertinoButton(
+                          padding: EdgeInsets.zero,
+                          onPressed: profile.idToken == null ? null : () async {
+                            await Clipboard.setData(ClipboardData(text: profile.idToken ?? ''));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('ID token copied!')),
+                            );
+                          },
+                          child: const Icon(CupertinoIcons.doc_on_doc),
+                        ),
+                        const SizedBox(height: 16),
+                        const Text('Refresh Token:'),
+                        SelectableText(profile.refreshToken ?? '', style: TextStyle(fontSize: 12)),
+                        CupertinoButton(
+                          padding: EdgeInsets.zero,
+                          onPressed: profile.refreshToken == null ? null : () async {
+                            await Clipboard.setData(ClipboardData(text: profile.refreshToken ?? ''));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Refresh token copied!')),
+                            );
+                          },
+                          child: const Icon(CupertinoIcons.doc_on_doc),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  CupertinoButton(
+                    onPressed: _refreshTokens,
+                    child: const Text('Refresh Tokens'),
+                  ),
+                ],
               ],
-            ] else ...[
-              const Text('Logged in!'),
-              const SizedBox(height: 16),
-              const Text('Access Token:'),
-              SelectableText(_accessToken ?? '', style: const TextStyle(fontSize: 12)),
-              IconButton(
-                icon: const Icon(Icons.copy),
-                tooltip: 'Copy Access Token',
-                onPressed: _accessToken == null ? null : () async {
-                  await Clipboard.setData(ClipboardData(text: _accessToken ?? ''));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Access token copied!')),
-                  );
-                },
-              ),
-              const SizedBox(height: 16),
-              const Text('ID Token:'),
-              SelectableText(_idToken ?? '', style: const TextStyle(fontSize: 12)),
-              IconButton(
-                icon: const Icon(Icons.copy),
-                tooltip: 'Copy ID Token',
-                onPressed: _idToken == null ? null : () async {
-                  await Clipboard.setData(ClipboardData(text: _idToken ?? ''));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('ID token copied!')),
-                  );
-                },
-              ),
-              const SizedBox(height: 16),
-              const Text('Refresh Token:'),
-              SelectableText(_refreshToken ?? '', style: const TextStyle(fontSize: 12)),
-              IconButton(
-                icon: const Icon(Icons.copy),
-                tooltip: 'Copy Refresh Token',
-                onPressed: _refreshToken == null ? null : () async {
-                  await Clipboard.setData(ClipboardData(text: _refreshToken ?? ''));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Refresh token copied!')),
-                  );
-                },
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: _refreshTokens,
-                child: const Text('Refresh Tokens'),
-              ),
-            ],
-          ],
+            ),
+          ),
         ),
       ),
     );
