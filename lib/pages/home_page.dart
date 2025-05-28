@@ -6,6 +6,8 @@ import 'package:openapi/openapi.dart';  // This now includes our enhanced APIs
 import 'package:flutter_e_mentor/main.dart';
 import 'package:flutter_e_mentor/api/api_client.dart';
 import 'package:go_router/go_router.dart';
+import '../widgets/quiz_stats_overall_card.dart';
+import '../widgets/student_stats_questions_card.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -165,49 +167,100 @@ class _HomePageState extends State<HomePage> {
                         ),
                       )
                     else ...[
-                      // Quiz stats card
+                      // Congratulations quizzes card
                       _BigCard(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        child: Stack(
                           children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Testele tale',
-                                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: theme.primaryColor),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: theme.primaryColor.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  child: Text(
-                                    '${_dashboardStats?.quizzes?.completedQuizzes ?? 0} completate',
-                                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: theme.primaryColor),
+                                  'Felicitări! 🎉',
+                                  style: TextStyle(
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.bold,
+                                    color: CupertinoColors.black,
                                   ),
                                 ),
+                                const SizedBox(height: 8),
+                                if ((_dashboardStats?.quizzes?.completedQuizzes ?? 0) > 0) ...[
+                                  Text(
+                                    'Ai reușit să parcurgi până acum',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      color: CupertinoColors.systemGrey,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    (_dashboardStats!.quizzes!.completedQuizzes != 1)
+                                        ? '${_dashboardStats!.quizzes!.completedQuizzes} teste'
+                                        : 'Primul tău test alături de E-mentor!',
+                                    style: TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                      color: theme.primaryColor,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  CupertinoButton.filled(
+                                    color: const Color.fromRGBO(40, 199, 111, 1), // Explicitly set green color
+                                    child: Text('Continuă testele', style: TextStyle(color: CupertinoColors.white)),
+                                    onPressed: () => context.go('/quizzes'),
+                                  ),
+                                ] else ...[
+                                  Text(
+                                    'Hai să începem primul test',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      color: const Color.fromRGBO(40, 199, 111, 0.7), // Green shade instead of gray
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  CupertinoButton.filled(
+                                    color: const Color.fromRGBO(40, 199, 111, 1), // Explicitly set green color
+                                    child: const Text('Începe testele chiar acum!'),
+                                    onPressed: () => context.go('/quizzes'),
+                                  ),
+                                ],
                               ],
                             ),
-                            const SizedBox(height: 16),
-                            _StatRow(
-                              label: 'Întrebări răspunse',
-                              value: _dashboardStats?.questions?.totalQuestions?.toString() ?? '0',
-                            ),
-                            const SizedBox(height: 12),
-                            _StatRow(
-                              label: 'Răspunsuri corecte',
-                              value: _dashboardStats?.questions?.correctQuestions?.toString() ?? '0',
-                            ),
-                            const SizedBox(height: 12),
-                            _StatRow(
-                              label: 'Timp petrecut (ultima lună)',
-                              value: _formatTime(_dashboardStats?.lastMonthQuizTime ?? 0),
+                            Positioned(
+                              right: 0,
+                              bottom: 0,
+                              child: Container(
+                                width: 75,
+                                child: Image.asset(
+                                  'assets/images/congratulations-john.png',
+                                  fit: BoxFit.contain,
+                                  errorBuilder: (context, error, stackTrace) => Center(child: Icon(CupertinoIcons.exclamationmark_triangle, color: CupertinoColors.systemRed)),
+                                ),
+                              ),
                             ),
                           ],
                         ),
                       ),
+
+                                            // Student Stats Questions Card - replicated from JS component  
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 24),
+                        child: StudentStatsQuestionsCard(
+                          totalQuestions: _dashboardStats?.questions?.totalQuestions ?? 0,
+                          correctQuestions: _dashboardStats?.questions?.correctQuestions ?? 0,
+                        ),
+                      ),
+                      // Quiz stats card using our reusable widget
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 24),
+                        child: QuizStatsOverallCard(
+                          completedQuizzes: _dashboardStats?.quizzes?.completedQuizzes ?? 0,
+                          totalQuestions: _dashboardStats?.questions?.totalQuestions ?? 0,
+                          correctQuestions: _dashboardStats?.questions?.correctQuestions ?? 0,
+                          lastMonthQuizTime: _dashboardStats?.lastMonthQuizTime ?? 0,
+                        ),
+                      ),
+                      
+
                       
                       // Recent results card if available
                       if (_dashboardStats?.lastMonthQuizzesResults?.isNotEmpty ?? false)
@@ -236,14 +289,14 @@ class _HomePageState extends State<HomePage> {
               child: GestureDetector(
                 onTap: _showDisconnectConfirmation,
                 child: Container(
-                  width: 48,
-                  height: 48,
+                  width: 30,
+                  height: 30,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     color: CupertinoColors.systemRed,
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(CupertinoIcons.power, color: CupertinoColors.white),
+                  child: const Icon(CupertinoIcons.power, color: CupertinoColors.white, size: 20),
                 ),
               ),
             ),
@@ -292,37 +345,6 @@ class _HomePageState extends State<HomePage> {
     if (result >= 0.8) return const Color(0xFF28C76F); // Success
     if (result >= 0.5) return const Color(0xFFFFB155); // Warning
     return const Color(0xFFEA5455); // Danger
-  }
-  
-  String _formatTime(int seconds) {
-    if (seconds < 60) return '$seconds secunde';
-    if (seconds < 3600) {
-      final minutes = (seconds / 60).floor();
-      return '$minutes minut${minutes == 1 ? '' : 'e'}';
-    }
-    final hours = (seconds / 3600).floor();
-    final minutes = ((seconds % 3600) / 60).floor();
-    return '$hours or${hours == 1 ? 'ă' : 'e'} $minutes minut${minutes == 1 ? '' : 'e'}';
-  }
-}
-
-class _StatRow extends StatelessWidget {
-  final String label;
-  final String value;
-  
-  const _StatRow({required this.label, required this.value});
-  
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(label, style: const TextStyle(fontSize: 16, color: CupertinoColors.black)),
-        Text(value, 
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: CupertinoColors.black)
-        ),
-      ],
-    );
   }
 }
 

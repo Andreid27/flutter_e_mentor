@@ -122,7 +122,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return CupertinoApp.router(
-      title: 'Flutter Demo',
+      title: 'E-Mentor',
       theme: cupertinoThemeFromWebPalette(),
       routerConfig: router,
     );
@@ -147,6 +147,69 @@ CupertinoThemeData cupertinoThemeFromWebPalette() {
       navTitleTextStyle: TextStyle(color: textColor, fontSize: 20, fontWeight: FontWeight.w600),
       navLargeTitleTextStyle: TextStyle(color: textColor, fontSize: 34, fontWeight: FontWeight.bold),
       actionTextStyle: TextStyle(color: primary, fontSize: 17),
+    ),
+  );
+}
+
+ThemeData materialThemeFromWebPalette() {
+  // Colors from index.js - same as Cupertino theme
+  const primary = Color.fromRGBO(40, 199, 111, 1); // #28C76F
+  const primaryDark = Color(0xFF22B86B);
+  const background = Color(0xFFFFFFFF); // Always white
+  const textColor = Color.fromRGBO(47, 43, 61, 0.78);
+  
+  return ThemeData(
+    useMaterial3: true,
+    brightness: Brightness.light,
+    primarySwatch: MaterialColor(0xFF28C76F, {
+      50: Color(0xFFE8F8F0),
+      100: Color(0xFFC6EDDA),
+      200: Color(0xFF9FE2C2),
+      300: Color(0xFF78D6AA),
+      400: Color(0xFF5ACD97),
+      500: primary, // #28C76F
+      600: Color(0xFF24B969),
+      700: Color(0xFF1FA85E),
+      800: Color(0xFF1B9854),
+      900: Color(0xFF138241),
+    }),
+    primaryColor: primary,
+    primaryColorDark: primaryDark,
+    scaffoldBackgroundColor: background,
+    cardColor: background,
+    appBarTheme: const AppBarTheme(
+      backgroundColor: background,
+      foregroundColor: textColor,
+      elevation: 0,
+      titleTextStyle: TextStyle(
+        color: textColor,
+        fontSize: 20,
+        fontWeight: FontWeight.w600,
+        fontFamily: 'SF Pro Text',
+      ),
+    ),
+    textTheme: const TextTheme(
+      bodyLarge: TextStyle(color: textColor, fontFamily: 'SF Pro Text'),
+      bodyMedium: TextStyle(color: textColor, fontFamily: 'SF Pro Text'),
+      bodySmall: TextStyle(color: textColor, fontFamily: 'SF Pro Text'),
+      titleLarge: TextStyle(color: textColor, fontSize: 22, fontWeight: FontWeight.w600, fontFamily: 'SF Pro Text'),
+      titleMedium: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.w500, fontFamily: 'SF Pro Text'),
+      titleSmall: TextStyle(color: textColor, fontSize: 14, fontWeight: FontWeight.w500, fontFamily: 'SF Pro Text'),
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: primary,
+        foregroundColor: Colors.white,
+        elevation: 2,
+        textStyle: const TextStyle(fontWeight: FontWeight.w600),
+      ),
+    ),
+    chipTheme: ChipThemeData(
+      backgroundColor: Colors.grey.shade100,
+      selectedColor: primary.withOpacity(0.2),
+      labelStyle: const TextStyle(color: textColor, fontFamily: 'SF Pro Text'),
+      secondaryLabelStyle: const TextStyle(color: textColor, fontFamily: 'SF Pro Text'),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
     ),
   );
 }
