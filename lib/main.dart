@@ -130,7 +130,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return CupertinoApp.router(
-      title: 'E-Mentor',
+      title: 'E-mentor',
       theme: cupertinoThemeFromWebPalette(),
       routerConfig: router,
     );
