@@ -4,6 +4,7 @@ import 'package:openapi/openapi.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:built_value/json_object.dart';
 import '../api/api_client.dart';
+import 'package:go_router/go_router.dart';
 
 class QuizListPage extends StatefulWidget {
   const QuizListPage({super.key});
@@ -60,11 +61,13 @@ class _QuizListPageState extends State<QuizListPage> {
   List<QuizzesStudentsView> _quizzes = [];
   List<FilterOptionObject> _filterOptions = [];
   bool _loading = true;
+  bool _isLoadingMore = false;
   int _currentPage = 0;
   int _totalCount = 0;
   final int _pageSize = 10;
   SortProperty _orderBy = SortProperty.assignedAt;
   SortCriteriaDirectionEnum _order = SortCriteriaDirectionEnum.DESC;
+  late ScrollController _scrollController;
   
   // Filters
   DifficultyFilter _difficultyFilter = DifficultyFilter.all;
@@ -79,12 +82,27 @@ class _QuizListPageState extends State<QuizListPage> {
     // Initialize the API client using the generated API
     final openapi = Openapi(dio: ApiClient.dio);
     _quizzesApi = openapi.getQuizzesControllerApi();
+    _scrollController = ScrollController();
+    _scrollController.addListener(_onScroll);
     _loadQuizzes();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200 && !_isLoadingMore && _quizzes.length < _totalCount) {
+      _loadMoreQuizzes();
+    }
   }
 
   Future<void> _loadQuizzes() async {
     setState(() {
       _loading = true;
+      _currentPage = 0;
     });
 
     try {
@@ -169,6 +187,62 @@ class _QuizListPageState extends State<QuizListPage> {
           ),
         );
       }
+    }
+  }
+
+  Future<void> _loadMoreQuizzes() async {
+    if (_isLoadingMore) return;
+    setState(() {
+      _isLoadingMore = true;
+      _currentPage++;
+    });
+    try {
+      final sorters = ListBuilder<SortCriteria>();
+      sorters.add(SortCriteria((b) => b
+        ..key = SortProperty.assignedAt.key
+        ..direction = _order));
+      if (_orderBy != SortProperty.assignedAt) {
+        sorters.add(SortCriteria((b) => b
+          ..key = _orderBy.key
+          ..direction = _order));
+      }
+      final filters = ListBuilder<FilterCriteriaObject>();
+      if (_difficultyFilter != DifficultyFilter.all) {
+        filters.add(FilterCriteriaObject((b) => b
+          ..key = 'difficultyLevel'
+          ..operation = FilterCriteriaObjectOperationEnum.EQUAL
+          ..value = JsonObject(int.parse(_difficultyFilter.value))));
+      }
+      if (_componentTypeFilter != ComponentTypeFilter.all) {
+        filters.add(FilterCriteriaObject((b) => b
+          ..key = 'componentType'
+          ..operation = FilterCriteriaObjectOperationEnum.EQUAL
+          ..value = JsonObject(_componentTypeFilter.value)));
+      }
+      if (_searchQuery.isNotEmpty) {
+        filters.add(FilterCriteriaObject((b) => b
+          ..key = 'title'
+          ..operation = FilterCriteriaObjectOperationEnum.LIKE
+          ..value = JsonObject(_searchQuery)));
+      }
+      final request = PaginatedRequest((b) => b
+        ..filters = filters
+        ..sorters = sorters
+        ..page = _currentPage
+        ..pageSize = _pageSize);
+      final response = await _quizzesApi.getPaginatedQuizStudent(
+        paginatedRequest: request,
+      );
+      if (response.data != null) {
+        setState(() {
+          _quizzes.addAll(response.data!.data?.toList() ?? []);
+          _isLoadingMore = false;
+        });
+      }
+    } catch (error) {
+      setState(() {
+        _isLoadingMore = false;
+      });
     }
   }
 
@@ -616,8 +690,16 @@ class _QuizListPageState extends State<QuizListPage> {
         // Quiz list
         Expanded(
           child: ListView.builder(
-            itemCount: _quizzes.length,
+            controller: _scrollController,
+            itemCount: _quizzes.length + (_isLoadingMore ? 1 : 0),
             itemBuilder: (context, index) {
+              if (index >= _quizzes.length) {
+                // Loading indicator for pagination
+                return const Padding(
+                  padding: EdgeInsets.all(16.0),
+                  child: Center(child: CupertinoActivityIndicator()),
+                );
+              }
               final quiz = _quizzes[index];
               final correctPercentage = quiz.correctAnswers != null && 
                       quiz.questionsCount != null && 
@@ -625,144 +707,143 @@ class _QuizListPageState extends State<QuizListPage> {
                   ? quiz.correctAnswers! / quiz.questionsCount!
                   : 0.0;
 
-              return Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                decoration: BoxDecoration(
-                  color: _calculateRowColor(quiz.correctAnswers, quiz.questionsCount),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.grey.withOpacity(0.2)),
-                ),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
+              return GestureDetector(
+                onTap: () {
+                  print('🔗 Attempting to navigate to: /quiz-preview/${quiz.id}');
+                  context.go('/quiz-preview/${quiz.id}');
+                },
+                child: Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: _calculateRowColor(quiz.correctAnswers, quiz.questionsCount),
                     borderRadius: BorderRadius.circular(8),
-                    onTap: () => _navigateToQuizPreview(quiz.id ?? ''),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  quiz.title ?? 'Test fără nume',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
+                    border: Border.all(color: Colors.grey.withOpacity(0.2)),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                quiz.title ?? 'Test fără nume',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
                                 ),
-                                const SizedBox(height: 8),
-                                // Component type
-                                if (quiz.componentType != null) ...[
-                                  Row(
-                                    children: [
-                                      const Icon(CupertinoIcons.tag, size: 16, color: CupertinoColors.systemIndigo),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        _getComponentTypeText(quiz.componentType),
-                                        style: const TextStyle(fontSize: 14),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                ],
-                                // Chapter titles
-                                if (quiz.chapterTitles != null) ...[
-                                  Row(
-                                    children: [
-                                      const Icon(CupertinoIcons.book, size: 16, color: CupertinoColors.systemBlue),
-                                      const SizedBox(width: 4),
-                                      Expanded(
-                                        child: Text(
-                                          quiz.chapterTitles!,
-                                          style: const TextStyle(fontSize: 14),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                ],
-                                // Duration and difficulty
+                              ),
+                              const SizedBox(height: 8),
+                              // Component type
+                              if (quiz.componentType != null) ...[
                                 Row(
                                   children: [
-                                    const Icon(CupertinoIcons.clock, size: 16, color: CupertinoColors.systemOrange),
+                                    const Icon(CupertinoIcons.tag, size: 16, color: CupertinoColors.systemIndigo),
                                     const SizedBox(width: 4),
                                     Text(
-                                      _formatDuration(quiz.maxTime),
-                                      style: const TextStyle(fontSize: 14),
-                                    ),
-                                    const SizedBox(width: 16),
-                                    const Icon(CupertinoIcons.speedometer, size: 16, color: CupertinoColors.systemPurple),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      _getDifficultyText(quiz.difficultyLevel),
+                                      _getComponentTypeText(quiz.componentType),
                                       style: const TextStyle(fontSize: 14),
                                     ),
                                   ],
                                 ),
-                                // Correct answers
-                                if (quiz.correctAnswers != null && quiz.questionsCount != null) ...[
-                                  const SizedBox(height: 4),
-                                  Row(
-                                    children: [
-                                      const Icon(CupertinoIcons.checkmark_circle, size: 16, color: CupertinoColors.systemGreen),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        '${quiz.correctAnswers}/${quiz.questionsCount} corecte (${(correctPercentage * 100).toStringAsFixed(1)}%)',
+                                const SizedBox(height: 4),
+                              ],
+                              // Chapter titles
+                              if (quiz.chapterTitles != null) ...[
+                                Row(
+                                  children: [
+                                    const Icon(CupertinoIcons.book, size: 16, color: CupertinoColors.systemBlue),
+                                    const SizedBox(width: 4),
+                                    Expanded(
+                                      child: Text(
+                                        quiz.chapterTitles!,
                                         style: const TextStyle(fontSize: 14),
                                       ),
-                                    ],
-                                  ),
-                                ],
-                                // Assignment date
-                                if (quiz.assignedAt != null) ...[
-                                  const SizedBox(height: 4),
-                                  Row(
-                                    children: [
-                                      const Icon(CupertinoIcons.calendar, size: 16, color: CupertinoColors.systemGrey),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        'Asignat: ${_formatDateTime(quiz.assignedAt)}',
-                                        style: const TextStyle(fontSize: 12, color: CupertinoColors.systemGrey),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                                // Started date
-                                if (quiz.startedAt != null) ...[
-                                  const SizedBox(height: 4),
-                                  Row(
-                                    children: [
-                                      const Icon(CupertinoIcons.play, size: 16, color: CupertinoColors.systemBlue),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        'Început: ${_formatDateTime(quiz.startedAt)}',
-                                        style: const TextStyle(fontSize: 12, color: CupertinoColors.systemGrey),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                                // End time
-                                if (quiz.endedTime != null) ...[
-                                  const SizedBox(height: 4),
-                                  Row(
-                                    children: [
-                                      const Icon(CupertinoIcons.stop, size: 16, color: CupertinoColors.systemRed),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        'Terminat: ${_formatDateTime(quiz.endedTime)}',
-                                        style: const TextStyle(fontSize: 12, color: CupertinoColors.systemGrey),
-                                      ),
-                                    ],
-                                  ),
-                                ],
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
                               ],
-                            ),
+                              // Duration and difficulty
+                              Row(
+                                children: [
+                                  const Icon(CupertinoIcons.clock, size: 16, color: CupertinoColors.systemOrange),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    _formatDuration(quiz.maxTime),
+                                    style: const TextStyle(fontSize: 14),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  const Icon(CupertinoIcons.speedometer, size: 16, color: CupertinoColors.systemPurple),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    _getDifficultyText(quiz.difficultyLevel),
+                                    style: const TextStyle(fontSize: 14),
+                                  ),
+                                ],
+                              ),
+                              // Correct answers
+                              if (quiz.correctAnswers != null && quiz.questionsCount != null) ...[
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    const Icon(CupertinoIcons.checkmark_circle, size: 16, color: CupertinoColors.systemGreen),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      '${quiz.correctAnswers}/${quiz.questionsCount} corecte (${(correctPercentage * 100).toStringAsFixed(1)}%)',
+                                      style: const TextStyle(fontSize: 14),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                              // Assignment date
+                              if (quiz.assignedAt != null) ...[
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    const Icon(CupertinoIcons.calendar, size: 16, color: CupertinoColors.systemGrey),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'Asignat: ${_formatDateTime(quiz.assignedAt)}',
+                                      style: const TextStyle(fontSize: 12, color: CupertinoColors.systemGrey),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                              // Started date
+                              if (quiz.startedAt != null) ...[
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    const Icon(CupertinoIcons.play, size: 16, color: CupertinoColors.systemBlue),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'Început: ${_formatDateTime(quiz.startedAt)}',
+                                      style: const TextStyle(fontSize: 12, color: CupertinoColors.systemGrey),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                              // End time
+                              if (quiz.endedTime != null) ...[
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    const Icon(CupertinoIcons.stop, size: 16, color: CupertinoColors.systemRed),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'Terminat: ${_formatDateTime(quiz.endedTime)}',
+                                      style: const TextStyle(fontSize: 12, color: CupertinoColors.systemGrey),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
                           ),
-                          const Icon(CupertinoIcons.chevron_right),
-                        ],
-                      ),
+                        ),
+                        const Icon(CupertinoIcons.chevron_right),
+                      ],
                     ),
                   ),
                 ),
@@ -770,42 +851,7 @@ class _QuizListPageState extends State<QuizListPage> {
             },
           ),
         ),
-        // Pagination info
-        if (_totalCount > _pageSize)
-          Container(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                CupertinoButton(
-                  onPressed: _currentPage > 0
-                      ? () {
-                          setState(() {
-                            _currentPage--;
-                          });
-                          _loadQuizzes();
-                        }
-                      : null,
-                  child: const Icon(CupertinoIcons.back),
-                ),
-                Text(
-                  'Pagina ${_currentPage + 1} din ${(_totalCount / _pageSize).ceil()}',
-                  style: const TextStyle(fontSize: 14),
-                ),
-                CupertinoButton(
-                  onPressed: (_currentPage + 1) * _pageSize < _totalCount
-                      ? () {
-                          setState(() {
-                            _currentPage++;
-                          });
-                          _loadQuizzes();
-                        }
-                      : null,
-                  child: const Icon(CupertinoIcons.forward),
-                ),
-              ],
-            ),
-          ),
+        // Remove old pagination info
       ],
     );
   }

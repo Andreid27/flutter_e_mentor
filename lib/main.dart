@@ -10,6 +10,7 @@ import 'pages/home_page.dart';
 import 'pages/quiz_list_page.dart';
 import 'pages/quiz_details_page.dart';
 import 'pages/sign_in_page.dart';
+import 'pages/quiz_preview_page.dart';
 import 'api/api_client.dart';
 
 final FlutterAppAuth appAuth = FlutterAppAuth();
@@ -76,7 +77,7 @@ void main() async {
     redirect: (context, state) {
       final userProfile = Provider.of<UserProfile>(context, listen: false);
       final loggedIn = userProfile.accessToken != null && userProfile.accessToken!.isNotEmpty;
-      final loggingIn = state.fullPath == '/sign-in';
+      final loggingIn = state.matchedLocation == '/sign-in';
       if (!loggedIn && !loggingIn) return '/sign-in';
       if (loggedIn && loggingIn) return '/home';
       return null;
@@ -102,6 +103,13 @@ void main() async {
                 builder: (context, state) => QuizDetailsPage(quizId: state.pathParameters['id']!),
               ),
             ],
+          ),
+          GoRoute(
+            path: '/quiz-preview/:id',
+            builder: (context, state) {
+              print('🔗 Navigating to quiz preview with ID: ${state.pathParameters['id']}');
+              return QuizPreviewPage(quizId: state.pathParameters['id']!);
+            },
           ),
         ],
       ),
@@ -222,17 +230,18 @@ class MainScaffold extends StatefulWidget {
 }
 
 class _MainScaffoldState extends State<MainScaffold> {
-  int _selectedIndex = 0;
-  static const List<String> _routes = ['/home', '/quizzes'];
+   static const List<String> _routes = ['/home', '/quizzes'];
   void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
     context.go(_routes[index]);
   }
+
   @override
   Widget build(BuildContext context) {
     final theme = CupertinoTheme.of(context);
+    // Fix location retrieval for go_router 15.1.2
+   final location = GoRouterState.of(context).matchedLocation;
+   final selectedIndex = _routes.indexWhere((r) => location.startsWith(r));
+
     return Container(
       color: CupertinoColors.white,
       child: Stack(
@@ -267,14 +276,14 @@ class _MainScaffoldState extends State<MainScaffold> {
                   _NavBarItem(
                     icon: CupertinoIcons.home,
                     label: 'Home',
-                    selected: _selectedIndex == 0,
+                    selected: selectedIndex == 0,
                     onTap: () => _onItemTapped(0),
                     activeColor: theme.primaryColor,
                   ),
                   _NavBarItem(
                     icon: CupertinoIcons.list_bullet,
                     label: 'Quizzes',
-                    selected: _selectedIndex == 1,
+                    selected: selectedIndex == 1,
                     onTap: () => _onItemTapped(1),
                     activeColor: theme.primaryColor,
                   ),
